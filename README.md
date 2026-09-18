@@ -170,7 +170,14 @@ All tests use mock providers — no external API calls required.
 
 The `SUPABASE_SERVICE_ROLE_KEY` must be set as a **server-side only** env var (not prefixed with `NEXT_PUBLIC_`).
 
-The workflow is driven by a Vercel Cron job (`/api/cron/advance`, runs every minute, defined in `vercel.json`) that advances each request one pipeline step per invocation, so long AI runs are never killed by the serverless function timeout. On the Hobby plan, cron requires the project to be deployed.
+#### How the AI pipeline advances (no cron required)
+
+- **Hobby (default)**: the pipeline is driven by *advance-on-read*. While a content workspace page is open, its 2s poll advances exactly one pipeline step per request, so long AI runs are never killed by the 60s serverless limit. No cron is needed and nothing else to configure.
+- **Pro (optional)**: add a per-minute cron in the Vercel dashboard pointing at `/api/cron/advance` (the endpoint exists and is guarded by the `x-vercel-cron` header). This keeps requests advancing even when no page is open.
+
+Scheduled publishing (and stuck-request recovery) fires on the same paths: on Hobby when a workspace page is open, on Pro via the cron.
+
+Note: functions are configured with `maxDuration = 300` (Fluid Compute), which is supported on all plans.
 
 ### Supabase
 

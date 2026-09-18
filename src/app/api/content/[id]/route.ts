@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth/session";
 import { createSupabaseServerClient } from "@/lib/db/client";
 import { NotFoundError, ForbiddenError, toApiError, getStatusCode } from "@/lib/errors";
+import { advanceStepIfDue, publishDueQueueItems } from "@/services/workflow/worker";
 
 export async function GET(
   _req: Request,
@@ -19,13 +20,33 @@ export async function GET(
       .eq("id", id)
       .single();
 
-    const request = data as any;
+    let request = data as any;
 
     if (error || !request) throw new NotFoundError("Content request");
 
     const isReviewer = ["reviewer", "admin"].includes(session.profile.role);
     if (!isReviewer && request.user_id !== session.userId) {
       throw new ForbiddenError();
+    }
+
+    // Advance-on-read: while this workspace page is being polled, run exactly
+    // one pipeline step per request-detail GET (debounced). This drives the
+    // pipeline on Hobby, which does not support per-minute cron jobs. The read
+    // is awaited so the serverless function stays alive for the whole step.
+    const advanced = await advanceStepIfDue(request);
+
+    if (advanced) {
+      // Flush due scheduled/retry publishes while we are here (otherwise they
+      // only fire on cron plan tiers).
+      await publishDueQueueItems(createSupabaseServerClient());
+
+      // Re-fetch so the response reflects the step that just ran.
+      const { data: fresh } = await supabase
+        .from("content_requests")
+        .select("*")
+        .eq("id", id)
+        .single();
+      request = fresh as any;
     }
 
     const [

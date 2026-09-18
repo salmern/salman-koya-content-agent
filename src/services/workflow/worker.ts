@@ -27,7 +27,7 @@ import { runChannelAdaptation } from "@/services/publishing/channel-service";
 import { executePublishing } from "@/services/publishing/publishing-service";
 import { recordFailure } from "@/lib/audit";
 
-const PROCESSING_STATUSES = [
+export const PROCESSING_STATUSES = [
   "RESEARCHING",
   "PLANNING",
   "GENERATING",
@@ -35,6 +35,11 @@ const PROCESSING_STATUSES = [
   "REVISING",
   "CHANNEL_ADAPTATION",
 ];
+
+// Minimum age (of `updated_at`) before the advance-on-read path will run
+// another step. Guards against concurrent polling invocations (multiple
+// tabs / overlapping fetches) re-entering the same step.
+export const ADVANCE_DEBOUNCE_MS = 5_000;
 
 // Requests older than this in a processing state are assumed to have been
 // killed by the platform → reset to FAILED so the user can retry.
@@ -112,6 +117,26 @@ export async function advanceOneStepFor(request: any): Promise<AdvanceOneStepRes
     default:
       return { advanced: false };
   }
+}
+
+/**
+ * Advance-on-read entry point used by the request-detail API on plans without
+ * per-minute cron (Hobby). Runs a single step only when the request is in a
+ * processing state AND was last touched more than the debounce window ago.
+ * Returns true when a step actually ran.
+ */
+export async function advanceStepIfDue(request: any): Promise<boolean> {
+  if (!PROCESSING_STATUSES.includes(request.status)) {
+    return false;
+  }
+
+  const lastTouched = request.updated_at ? new Date(request.updated_at).getTime() : 0;
+  if (Date.now() - lastTouched < ADVANCE_DEBOUNCE_MS) {
+    return false;
+  }
+
+  await advanceOneStepFor(request);
+  return true;
 }
 
 export async function advanceDueJobs(options?: { limit?: number }): Promise<WorkerRunResult> {
@@ -243,7 +268,7 @@ async function recoverStuckRequests(admin: any): Promise<number> {
  *  - SCHEDULED with scheduled_at <= now
  *  - READY (previous attempt failed and is retryable)
  */
-async function publishDueQueueItems(admin: any): Promise<number> {
+export async function publishDueQueueItems(admin: any): Promise<number> {
   const now = new Date().toISOString();
 
   const { data: items } = await admin

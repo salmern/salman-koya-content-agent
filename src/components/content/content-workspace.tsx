@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { toast } from "sonner";
 import {
   Search, FileText, Cpu, ClipboardCheck, CheckCircle2, Globe,
@@ -61,13 +61,21 @@ export function ContentWorkspace({
   const [activeTab, setActiveTab] = useState<Tab>("overview");
   const [selectedDraftIndex, setSelectedDraftIndex] = useState(0);
 
+  const fetchInFlightRef = useRef(false);
+
   const fetchData = useCallback(async () => {
+    // The detail GET may advance one pipeline step (advance-on-read) and can
+    // take up to a minute. Never overlap fetches: it would spawn concurrent
+    // step invocations for the same request.
+    if (fetchInFlightRef.current) return;
+    fetchInFlightRef.current = true;
     try {
       const res = await fetch(`/api/content/${contentRequestId}`);
       if (res.ok) setData(await res.json());
     } catch (err) {
       console.error("[Workspace] fetch failed:", err);
     } finally {
+      fetchInFlightRef.current = false;
       setLoading(false);
     }
   }, [contentRequestId]);

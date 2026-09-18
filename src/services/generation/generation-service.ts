@@ -223,7 +223,7 @@ async function draftStep(
       ...draftResult.usage,
     });
 
-    const { data: d } = await admin
+    const { data: d, error: draftInsertError } = await admin
       .from("content_drafts")
       .insert({
         content_request_id: input.contentRequestId,
@@ -245,6 +245,18 @@ async function draftStep(
       })
       .select()
       .single();
+
+    // Unique violation (23505): a concurrent invocation already inserted this
+    // version. Do NOT fail the request — resume by moving to evaluation; the
+    // next step will evaluate the winning draft.
+    if (draftInsertError && (draftInsertError as any)?.code === "23505") {
+      await setStatus(admin, input.contentRequestId, "EVALUATING");
+      return { done: false };
+    }
+
+    if (draftInsertError || !d) {
+      throw draftInsertError ?? new Error("Failed to insert draft");
+    }
 
     await recordAudit({
       actor_id: input.userId,
