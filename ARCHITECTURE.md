@@ -157,9 +157,40 @@ interface AiProvider {
 
 Implementations:
 - `MockAiProvider` — deterministic, no API calls, used in development/testing
-- `ClaudeProvider` — production, uses `claude-opus-4-5` with structured JSON outputs
+- `ClaudeProvider` — production, uses `claude-sonnet-4-5` with structured JSON outputs
 
 Selected via `AI_PROVIDER=mock|real` environment variable.
+
+### Evaluation — Relevance vs Completeness
+
+The evaluation pipeline explicitly distinguishes between "content that exists" and "content that is relevant, specific, audience-appropriate, and grounded in sources." This directly addresses the risk of AI producing well-formatted but generic content that scores highly on completeness while failing on relevance.
+
+**Implemented in `ClaudeProvider.evaluateDraft()` via two mechanisms:**
+
+**1. Per-dimension scoring with per-dimension thresholds**
+```
+topic_relevance  — is content specific to THIS topic, not generic?
+audience_fit     — does it address THIS audience's actual concerns?
+source_grounding — are claims backed by the reviewed sources?
+```
+If `topic_relevance < 6` OR `audience_fit < 6`, the status is forced to `REVISE` regardless of the overall score.
+
+**2. `CRITICAL RELEVANCE DISTINCTION` in the system prompt**
+
+The evaluator is explicitly instructed to flag content that:
+- Is generic and could apply to any topic
+- Restates the original instructions rather than providing substantive information
+- Mentions the target audience but doesn't address their specific context or concerns
+- References sources but doesn't use their actual findings
+
+**Scoring guide (implemented):**
+```
+PASS  — overall ≥7.5 AND topic_relevance ≥6 AND audience_fit ≥6
+REVISE — overall 5.5–7.4, OR topic_relevance <6, OR audience_fit <6
+REJECT — overall <5.5 or fundamentally off-topic/generic
+```
+
+This means a 600-word article that is perfectly formatted but entirely generic will score `topic_relevance ≤ 5` and be sent to revision — not passed to human review.
 
 ### Prompt Injection Defence
 

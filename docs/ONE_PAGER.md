@@ -43,9 +43,16 @@ A content manager enters a topic idea and optionally a source URL or file. The s
 6. Claude evaluates the draft on 9 dimensions:
    topic_relevance | source_grounding | factual_consistency | audience_fit |
    tone | seo_fit | channel_fit | clarity | completeness
-   → PASS (≥7.5): goes to human review
-   → REVISE (<7.5): AI revises (max 3 attempts), then goes to human review
-   → REJECT: goes to human review with flag
+
+   **Relevance gate (not just completeness):** The evaluator is explicitly instructed
+   to distinguish between "content that exists" and "content that is relevant, specific,
+   and grounded." It flags content that is generic, restates the instructions, or mentions
+   the target audience without addressing their actual concerns.
+
+   → PASS (overall ≥7.5, topic_relevance ≥6, audience_fit ≥6): goes to human review
+   → REVISE (overall <7.5, OR topic_relevance <6, OR audience_fit <6): AI revises
+   → REJECT (overall <5.5 or fundamentally off-topic): goes to human review with flag
+   Max 3 auto-revisions before escalating to human review regardless
               ↓
 7. Human reviewer (different person, enforced server-side) reviews article,
    sources, evaluation scores, and unsupported claims
@@ -95,6 +102,24 @@ Enter a public URL in the **Source URL** field. The system retrieves the page vi
 
 ### Reviewing Research
 Open the content workspace → **Sources** tab. See all retrieved sources with relevance scores, summaries, and why each was selected or rejected.
+
+### How the Evaluator Works (Relevance vs Completeness)
+The evaluation system does **not** simply check whether content exists or has the right word count. It distinguishes between:
+
+- ❌ "Content exists and is 600 words" — not sufficient
+- ✅ "Content is specific to this topic, grounded in reviewed sources, and addresses this audience's actual concerns" — required
+
+This is enforced through two mechanisms:
+
+**1. Per-dimension scoring** — the evaluator scores `topic_relevance` and `audience_fit` as separate dimensions (0–10 each). If either falls below 6, the overall status is forced to REVISE even if other scores are high.
+
+**2. CRITICAL RELEVANCE DISTINCTION in the system prompt** — Claude is explicitly instructed to flag:
+- Content that is generic and could apply to any topic
+- Content that restates the original instructions rather than providing substantive information
+- Content that mentions the target audience label but doesn't address their actual context or concerns
+- Content that mentions sources but doesn't use their specific findings
+
+This directly addresses the distinction between "completeness" (does content exist?) and "relevance" (is the content actually about this topic, for this audience, grounded in these sources?).
 
 ### Reviewing Generated Content
 - **Draft** tab: read the full article, summary, version history
