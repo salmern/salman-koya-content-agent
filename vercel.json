@@ -1,0 +1,27 @@
+{
+  "framework": "nextjs",
+  "buildCommand": "npm run build",
+  "devCommand": "npm run dev",
+  "installCommand": "npm install",
+  "regions": ["lhr1"],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "X-Frame-Options", "value": "DENY" },
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
+        { "key": "Permissions-Policy", "value": "camera=(), microphone=(), geolocation=()" }
+      ]
+    }
+  ],
+  "env": {
+    "AI_PROVIDER": "real",
+    "RESEARCH_PROVIDER": "real",
+    "PUBLISHING_PROVIDER": "mock",
+    "ENFORCE_SEPARATION_OF_DUTIES": "true",
+    "MAX_AUTO_REVISIONS": "3",
+    "API_RATE_LIMIT_PER_MINUTE": "60",
+    "NEXT_PUBLIC_DEMO_MODE": "false"
+  }
+}
