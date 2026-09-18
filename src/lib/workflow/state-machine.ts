@@ -191,6 +191,7 @@ export const POLLING_ACTIVE_STATUSES: WorkflowStatus[] = [
   "GENERATING",
   "EVALUATING",
   "REVISING",
+  "REVISION_REQUESTED",
   "CHANNEL_ADAPTATION",
   "PUBLISHING",
 ];
@@ -205,6 +206,7 @@ export function getWorkflowProgress(status: WorkflowStatus): number {
     "EVALUATING",
     "REVISING",
     "AWAITING_REVIEW",
+    "REVISION_REQUESTED",
     "APPROVED",
     "CHANNEL_ADAPTATION",
     "READY_TO_SCHEDULE",

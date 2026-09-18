@@ -33,6 +33,7 @@ export const PROCESSING_STATUSES = [
   "GENERATING",
   "EVALUATING",
   "REVISING",
+  "REVISION_REQUESTED",
   "CHANNEL_ADAPTATION",
 ];
 
@@ -97,7 +98,8 @@ export async function advanceOneStepFor(request: any): Promise<AdvanceOneStepRes
     case "PLANNING":
     case "GENERATING":
     case "EVALUATING":
-    case "REVISING": {
+    case "REVISING":
+    case "REVISION_REQUESTED": {
       await advanceGenerationStep({
         contentRequestId: request.id,
         userId: request.user_id,

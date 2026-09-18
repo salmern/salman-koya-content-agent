@@ -11,6 +11,7 @@ import { MockAiProvider } from "@/lib/ai/mock-provider";
 import { MockResearchProvider } from "@/lib/research/mock-provider";
 import { MockPublishingProvider } from "@/lib/publishing/mock-provider";
 import { WorkflowStateMachine } from "@/lib/workflow/state-machine";
+import { POLLING_ACTIVE_STATUSES, getWorkflowProgress } from "@/lib/workflow/state-machine";
 import {
   validateLinkedIn,
   validateX,
@@ -273,6 +274,23 @@ describe("Acceptance Test 4: Evaluation & Revision Loop", () => {
 
   it("workflow allows REVISING → EVALUATING (loop back)", () => {
     expect(WorkflowStateMachine.canTransition("REVISING", "EVALUATING")).toBe(true);
+  });
+
+  it("human-requested revisions can transition back into generation", () => {
+    expect(WorkflowStateMachine.canTransition("REVISION_REQUESTED", "GENERATING")).toBe(true);
+  });
+
+  it("REVISION_REQUESTED is polled (page stays active while AI regenerates)", () => {
+    expect(POLLING_ACTIVE_STATUSES).toContain("REVISION_REQUESTED");
+  });
+
+  it("REVISION_REQUESTED has non-zero workflow progress, between review and approval", () => {
+    const reviewProgress = getWorkflowProgress("AWAITING_REVIEW");
+    const revisionProgress = getWorkflowProgress("REVISION_REQUESTED");
+    const approvedProgress = getWorkflowProgress("APPROVED");
+    expect(revisionProgress).toBeGreaterThan(0);
+    expect(revisionProgress).toBeGreaterThan(reviewProgress);
+    expect(revisionProgress).toBeLessThan(approvedProgress);
   });
 });
 

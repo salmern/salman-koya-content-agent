@@ -87,6 +87,8 @@ export async function advanceGenerationStep(input: GenerationInput): Promise<Gen
       return draftStep(admin, ai, context, input, true);
     case "EVALUATING":
       return evalStep(admin, ai, context, input);
+    case "REVISION_REQUESTED":
+      return humanRevisionStep(admin, ai, context, input);
     default:
       return { done: true };
   }
@@ -287,6 +289,127 @@ async function draftStep(
     return { done: false };
   } catch (err) {
     await failRequest(input.contentRequestId, isRevision ? "revision" : "generation", err);
+    throw err;
+  }
+}
+
+/**
+ * Human-requested revision step (REVISION_REQUESTED).
+ *
+ * A reviewer asked for changes (review-service → REVISION_REQUESTED). This
+ * step generates the next draft using the reviewer's revision instructions,
+ * then hands it to the normal evaluation loop. Human-requested revisions do
+ * NOT consume the AI auto-revision cap (no draft_revisions row is written).
+ */
+async function humanRevisionStep(
+  admin: any,
+  ai: any,
+  context: GenerationContext,
+  input: GenerationInput
+): Promise<GenerationStepResult> {
+  const latestDraft = context.latestDraft;
+
+  // Resume guard: a draft was already produced for this revision request but
+  // not yet evaluated (crash between insert and the status transition).
+  if (latestDraft) {
+    const { data: existingEvals } = await admin
+      .from("draft_evaluations")
+      .select("id")
+      .eq("draft_id", latestDraft.id)
+      .limit(1);
+
+    if (existingEvals && existingEvals.length > 0) {
+      await setStatus(admin, input.contentRequestId, "EVALUATING");
+      return { done: false };
+    }
+  }
+
+  try {
+    const { data: revision } = await admin
+      .from("human_reviews")
+      .select("revision_instructions")
+      .eq("content_request_id", input.contentRequestId)
+      .eq("decision", "revision_requested")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const revisionInstructions =
+      revision?.revision_instructions?.trim() ||
+      (context.latestEvaluation ? buildRevisionInstructions(context.latestEvaluation) : null);
+
+    const draftResult = await ai.generateArticleDraft({
+      plan: context.plan ?? ({} as ContentPlan),
+      sources: context.sources.map((s: any) => ({
+        id: s.id,
+        url: s.url,
+        content: s.content ?? "",
+        title: s.title,
+        summary: s.summary ?? "",
+      })),
+      tone: context.request.tone,
+      additionalInstructions: context.request.additional_instructions,
+      revisionInstructions,
+      previousDraft: latestDraft?.article ?? null,
+    });
+
+    await recordAiUsage({
+      contentRequestId: input.contentRequestId,
+      operation: "draft_revision",
+      ...draftResult.usage,
+    });
+
+    const { data: d, error: draftInsertError } = await admin
+      .from("content_drafts")
+      .insert({
+        content_request_id: input.contentRequestId,
+        content_plan_id: context.plan?.id ?? null,
+        version_number: context.nextVersion,
+        parent_version_id: latestDraft?.id ?? null,
+        title: draftResult.data.title,
+        summary: draftResult.data.summary,
+        article: draftResult.data.article,
+        primary_keyword: draftResult.data.primary_keyword,
+        secondary_keywords: draftResult.data.secondary_keywords,
+        source_ids: draftResult.data.source_ids,
+        key_claims: draftResult.data.key_claims as unknown as import("@/lib/db/database.types").Json,
+        word_count: draftResult.data.word_count,
+        reading_time_minutes: draftResult.data.reading_time_minutes,
+        change_summary: draftResult.data.change_summary,
+        created_by: "ai_revision",
+        created_by_user_id: null,
+      })
+      .select()
+      .single();
+
+    // Unique violation: a concurrent invocation already inserted this version.
+    if (draftInsertError && (draftInsertError as any)?.code === "23505") {
+      await setStatus(admin, input.contentRequestId, "EVALUATING");
+      return { done: false };
+    }
+
+    if (draftInsertError || !d) {
+      throw draftInsertError ?? new Error("Failed to insert draft");
+    }
+
+    await recordAudit({
+      actor_id: input.userId,
+      actor_email: input.userEmail,
+      action: "draft_revised",
+      entity_type: "content_draft",
+      entity_id: d.id,
+      content_request_id: input.contentRequestId,
+      metadata: {
+        reason: "human_revision_request",
+        version: context.nextVersion,
+        word_count: draftResult.data.word_count,
+      },
+    });
+
+    await setStatus(admin, input.contentRequestId, "EVALUATING");
+    return { done: false };
+  } catch (err) {
+    await failRequest(input.contentRequestId, "human_revision", err);
     throw err;
   }
 }
