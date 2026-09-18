@@ -2,9 +2,12 @@
 import { NextResponse } from "next/server";
 import { requireAuth, canManageRequest } from "@/lib/auth/session";
 import { createSupabaseServerClient } from "@/lib/db/client";
-import { NotFoundError, ForbiddenError, toApiError, getStatusCode } from "@/lib/errors";
-import { runChannelAdaptation } from "@/services/publishing/channel-service";
-import type { ContentChannel } from "@/types";
+import { NotFoundError, ForbiddenError, WorkflowError, toApiError, getStatusCode } from "@/lib/errors";
+import { WorkflowStateMachine } from "@/lib/workflow/state-machine";
+import { isLocalDevelopment, runPipelineToCompletion } from "@/services/workflow/worker";
+import type { WorkflowStatus } from "@/types";
+
+export const maxDuration = 300;
 
 export async function POST(req: Request) {
   try {
@@ -30,14 +33,31 @@ export async function POST(req: Request) {
     if (error || !request) throw new NotFoundError("Content request");
     if (!canManageRequest(session, request.user_id)) throw new ForbiddenError();
 
-    runChannelAdaptation({
-      contentRequestId,
-      userId: session.userId,
-      userEmail: session.email,
-      channels: channels as ContentChannel[],
-    }).catch((err) => {
-      console.error("[Channels API] Background channel adaptation failed:", err);
-    });
+    const currentStatus = request.status as WorkflowStatus;
+    if (!WorkflowStateMachine.canTransition(currentStatus, "CHANNEL_ADAPTATION")) {
+      throw new WorkflowError(
+        `Cannot adapt channels from status "${currentStatus}". Content must be APPROVED or FAILED first.`
+      );
+    }
+
+    const { error: statusError } = await (supabase.from("content_requests") as any)
+      .update({ status: "CHANNEL_ADAPTATION" })
+      .eq("id", contentRequestId);
+
+    if (statusError) {
+      return NextResponse.json(
+        { error: { code: "DB_ERROR", message: "Failed to start channel adaptation." } },
+        { status: 500 }
+      );
+    }
+
+    // Local development runs inline so progress is instant; production
+    // defers to the cron worker (/api/cron/advance).
+    if (isLocalDevelopment()) {
+      runPipelineToCompletion({ contentRequestId }).catch((err) => {
+        console.error("[Channels API] Inline channel adaptation failed:", err);
+      });
+    }
 
     return NextResponse.json(
       { message: "Channel adaptation started", contentRequestId },

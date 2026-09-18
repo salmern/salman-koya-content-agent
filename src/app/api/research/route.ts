@@ -4,8 +4,10 @@ import { requireAuth, canManageRequest } from "@/lib/auth/session";
 import { createSupabaseServerClient } from "@/lib/db/client";
 import { NotFoundError, ForbiddenError, WorkflowError, toApiError, getStatusCode } from "@/lib/errors";
 import { WorkflowStateMachine } from "@/lib/workflow/state-machine";
-import { runResearch } from "@/services/research/research-service";
+import { isLocalDevelopment, runPipelineToCompletion } from "@/services/workflow/worker";
 import type { WorkflowStatus } from "@/types";
+
+export const maxDuration = 300;
 
 export async function POST(req: Request) {
   try {
@@ -38,19 +40,24 @@ export async function POST(req: Request) {
       );
     }
 
-    const researchPromise = runResearch({
-      contentRequestId,
-      userId: session.userId,
-      userEmail: session.email,
-      contentIdea: request.content_idea,
-      targetAudience: request.target_audience,
-      sourceUrl: request.source_url,
-      supportingMaterial: request.supporting_material,
-    });
+    const { error: statusError } = await (supabase.from("content_requests") as any)
+      .update({ status: "RESEARCHING" })
+      .eq("id", contentRequestId);
 
-    researchPromise.catch((err) => {
-      console.error("[Research API] Background research failed:", err);
-    });
+    if (statusError) {
+      return NextResponse.json(
+        { error: { code: "DB_ERROR", message: "Failed to start research." } },
+        { status: 500 }
+      );
+    }
+
+    // Local development runs inline so progress is instant; production
+    // defers to the cron worker (/api/cron/advance).
+    if (isLocalDevelopment()) {
+      runPipelineToCompletion({ contentRequestId }).catch((err) => {
+        console.error("[Research API] Inline research failed:", err);
+      });
+    }
 
     return NextResponse.json(
       { message: "Research started", contentRequestId },

@@ -191,7 +191,7 @@ export function NewContentForm() {
       }
 
       toast.success("Content request created", {
-        description: "Research is starting — this runs in the background.",
+        description: "Research is starting — you'll see progress update live.",
       });
       router.push(`/content/${data.id}`);
     } catch {

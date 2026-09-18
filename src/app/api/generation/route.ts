@@ -4,8 +4,10 @@ import { requireAuth, canManageRequest } from "@/lib/auth/session";
 import { createSupabaseServerClient } from "@/lib/db/client";
 import { NotFoundError, ForbiddenError, WorkflowError, toApiError, getStatusCode } from "@/lib/errors";
 import { WorkflowStateMachine } from "@/lib/workflow/state-machine";
-import { runGeneration } from "@/services/generation/generation-service";
+import { isLocalDevelopment, runPipelineToCompletion } from "@/services/workflow/worker";
 import type { WorkflowStatus } from "@/types";
+
+export const maxDuration = 300;
 
 export async function POST(req: Request) {
   try {
@@ -38,13 +40,24 @@ export async function POST(req: Request) {
       );
     }
 
-    runGeneration({
-      contentRequestId,
-      userId: session.userId,
-      userEmail: session.email,
-    }).catch((err) => {
-      console.error("[Generation API] Background generation failed:", err);
-    });
+    const { error: statusError } = await (supabase.from("content_requests") as any)
+      .update({ status: "PLANNING" })
+      .eq("id", contentRequestId);
+
+    if (statusError) {
+      return NextResponse.json(
+        { error: { code: "DB_ERROR", message: "Failed to start generation." } },
+        { status: 500 }
+      );
+    }
+
+    // Local development runs inline so progress is instant; production
+    // defers to the cron worker (/api/cron/advance).
+    if (isLocalDevelopment()) {
+      runPipelineToCompletion({ contentRequestId }).catch((err) => {
+        console.error("[Generation API] Inline generation failed:", err);
+      });
+    }
 
     return NextResponse.json(
       { message: "Generation started", contentRequestId },

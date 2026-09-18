@@ -5,6 +5,7 @@ import { createSupabaseServerClient } from "@/lib/db/client";
 import { CreateContentRequestSchema } from "@/schemas/content-request";
 import { recordAudit } from "@/lib/audit";
 import { toApiError, getStatusCode } from "@/lib/errors";
+import { isLocalDevelopment, runPipelineToCompletion } from "@/services/workflow/worker";
 
 export async function POST(req: Request) {
   try {
@@ -68,6 +69,16 @@ export async function POST(req: Request) {
         channels: input.requested_channels,
       },
     });
+
+    // Auto-start research so the "research is starting" message the user just
+    // saw holds true. The worker (or the local inline path) drives it.
+    await (supabase.from("content_requests") as any).update({ status: "RESEARCHING" }).eq("id", request.id);
+
+    if (isLocalDevelopment()) {
+      runPipelineToCompletion({ contentRequestId: request.id }).catch((err) => {
+        console.error("[Content API] Inline research failed:", err);
+      });
+    }
 
     return NextResponse.json(request, { status: 201 });
   } catch (error) {

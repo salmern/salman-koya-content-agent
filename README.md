@@ -164,11 +164,13 @@ All tests use mock providers — no external API calls required.
 
 1. Push to GitHub
 2. Import the repo in [Vercel](https://vercel.com)
-3. Add all environment variables from `.env.example`
+3. Add all environment variables from `.env.example` **in the Vercel project settings** (the `env` block in `vercel.json` is intentionally not used — Vercel does not apply it to framework builds)
 4. Set `AI_PROVIDER=real`, `RESEARCH_PROVIDER=real` in Vercel env
 5. Deploy
 
 The `SUPABASE_SERVICE_ROLE_KEY` must be set as a **server-side only** env var (not prefixed with `NEXT_PUBLIC_`).
+
+The workflow is driven by a Vercel Cron job (`/api/cron/advance`, runs every minute, defined in `vercel.json`) that advances each request one pipeline step per invocation, so long AI runs are never killed by the serverless function timeout. On the Hobby plan, cron requires the project to be deployed.
 
 ### Supabase
 
