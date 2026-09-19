@@ -18,6 +18,7 @@ import type {
   XOutput,
 } from "./provider";
 import type { ContentPlan } from "@/types";
+import { getConfiguredAuthorName } from "./author";
 
 function mockUsage(inputTokens = 1200, outputTokens = 800): AiUsage {
   return {
@@ -333,6 +334,9 @@ Full breakdown: [link]`,
   }): Promise<AiResult<NewsletterOutput>> {
     await delay(700);
 
+    const author = getConfiguredAuthorName();
+    const signOff = author ? `\n\nUntil next week,\n${author}` : "";
+
     return {
       data: {
         subject_line: `${params.title} — What You Need to Know`,
@@ -360,10 +364,7 @@ Plan for iteration, not a one-time deployment. Every team we've spoken to who sa
 
 ---
 
-What's one AI tool or workflow your team has actually found useful? Hit reply — I read every response.
-
-Until next week,
-The Koya Content Team`,
+What's one AI tool or workflow your team has actually found useful? Hit reply — I read every response.${signOff}`,
         cta: "Read the full guide →",
       },
       usage: mockUsage(900, 500),

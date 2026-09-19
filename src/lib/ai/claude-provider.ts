@@ -23,6 +23,10 @@ import type {
 } from "./provider";
 import type { ContentPlan } from "@/types";
 import { AiError, AiOutputError } from "@/lib/errors";
+import {
+  authorSystemRule,
+  newsletterSignOffInstruction,
+} from "./author";
 
 const DEFAULT_MODEL = "claude-sonnet-4-5";
 const MAX_RETRIES = 2;
@@ -303,6 +307,8 @@ RULES:
 7. Do NOT invent statistics, quotes, study names, or organization names
 8. Return ONLY valid JSON
 
+${authorSystemRule()}
+
 ${wrapSourcesForSafety(params.sources)}`;
 
     const user = `Write an article based on this plan.
@@ -443,7 +449,9 @@ CRITICAL: LinkedIn does NOT render markdown. Write in plain text only.
 - Use CAPS sparingly for emphasis if needed (e.g. "THE PROBLEM:")
 - Use → or ✓ or emoji as visual bullets if appropriate
 - Hashtags go at the very end, separated by a blank line
-Return ONLY valid JSON.`;
+Return ONLY valid JSON.
+
+${authorSystemRule()}`;
 
     const user = `Create a LinkedIn post from this article. Plain text only — no markdown.
 
@@ -477,7 +485,9 @@ Return JSON:
 Use line breaks for rhythm. Max 2 hashtags.
 CRITICAL: The entire post including hashtags MUST be under 280 characters total.
 If the content is too long, write a thread: split into parts separated by exactly \\n---\\n on its own line, each part under 280 characters.
-Return ONLY valid JSON.`;
+Return ONLY valid JSON.
+
+${authorSystemRule()}`;
 
     const user = `Create an X (Twitter) post from this article. HARD LIMIT: 280 characters total.
 
@@ -505,7 +515,9 @@ Return JSON — content must be under 280 chars OR use thread format (parts spli
   }): Promise<AiResult<NewsletterOutput>> {
     const system = `You are an email newsletter expert. Write newsletters that people actually read.
 Strong subject line. Skimmable body. 250-600 words. Friendly but professional.
-Return ONLY valid JSON.`;
+Return ONLY valid JSON.
+
+${authorSystemRule()}`;
 
     const user = `Create a newsletter from this article.
 
@@ -515,6 +527,8 @@ Audience: ${params.targetAudience}
 
 Article (first 2000 chars):
 ${params.article.slice(0, 2000)}
+
+${newsletterSignOffInstruction()}
 
 Return JSON:
 {

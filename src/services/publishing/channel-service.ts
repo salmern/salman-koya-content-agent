@@ -18,6 +18,10 @@ import {
 } from "@/lib/validation/channel-validators";
 import { NotApprovedError, StaleApprovalError } from "@/lib/errors";
 import type { ContentChannel, ChannelValidationError } from "@/types";
+import {
+  fixPlaceholderAuthorSignOff,
+  getConfiguredAuthorName,
+} from "@/lib/ai/author";
 
 const MAX_CHANNEL_RETRIES = 3;
 
@@ -243,14 +247,21 @@ async function generateChannelContent(params: {
           ...result.usage,
         });
 
+        // Enforce author/sender name rules: substitute the configured brand/author
+        // name for any placeholder sign-off, or strip it when none is configured.
+        const newsletterContent = fixPlaceholderAuthorSignOff(
+          result.data.content,
+          getConfiguredAuthorName()
+        );
+
         validationResult = validateNewsletter({
-          content: result.data.content,
+          content: newsletterContent,
           subjectLine: result.data.subject_line,
           cta: result.data.cta,
         });
 
         generated = {
-          content: result.data.content,
+          content: newsletterContent,
           hashtags: [],
           cta: result.data.cta,
           subjectLine: result.data.subject_line,
