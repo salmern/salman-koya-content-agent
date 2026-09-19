@@ -3,7 +3,8 @@ import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth/session";
 import { createSupabaseServerClient, createSupabaseAdminClient } from "@/lib/db/client";
 import { NotFoundError, ForbiddenError, toApiError, getStatusCode } from "@/lib/errors";
-import { advanceStepIfDue, publishDueQueueItems } from "@/services/workflow/worker";
+import { recordFailure } from "@/lib/audit";
+import { advanceStepIfDue, publishDueQueueItems, PROCESSING_STATUSES } from "@/services/workflow/worker";
 
 export async function GET(
   _req: Request,
@@ -38,12 +39,30 @@ export async function GET(
     try {
       advanced = await advanceStepIfDue(request);
     } catch (err) {
-      // The step handlers already persisted the failure (status → FAILED +
-      // a failure record). Surfacing it here would make every poll error with
-      // a 500 and confuse the UI — instead log it and let the next poll
-      // reflect the FAILED state.
+      // Research and generation step handlers persist their own FAILED state +
+      // failure record. Channel adaptation does not, so persist it here to stop
+      // the debounced poll from re-invoking a failing step every ~5s. The
+      // `.in()` guard means we never overwrite a terminal state if a handler
+      // already persisted it (also avoiding a duplicate failure record).
       stepFailed = true;
       console.error(`[Workspace API] Step failed for ${id}:`, err);
+      try {
+        const admin = createSupabaseAdminClient();
+        await (admin.from("content_requests") as any)
+          .update({ status: "FAILED" })
+          .eq("id", id)
+          .in("status", PROCESSING_STATUSES);
+        await recordFailure({
+          contentRequestId: id,
+          operation: "worker_step",
+          errorType: "UNKNOWN",
+          message: err instanceof Error ? err.message : "Unknown step error",
+          stackTrace: err instanceof Error ? err.stack : null,
+          isRetryable: true,
+        });
+      } catch (persistErr) {
+        console.error(`[Workspace API] Failed to persist FAILED for ${id}:`, persistErr);
+      }
     }
 
     if (advanced || stepFailed) {
