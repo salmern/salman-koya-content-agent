@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Profile } from "@/types";
+import { canCreateContent } from "@/lib/auth/permissions";
 
 interface NavItem {
   href: string;
@@ -79,15 +80,17 @@ export function AppSidebar({ profile, pendingReviewCount = 0 }: AppSidebarProps)
       </div>
 
       {/* New content button */}
-      <div className="px-3 pt-3 pb-1">
-        <Link
-          href="/content/new"
-          className="flex items-center gap-2 w-full h-8 px-3 rounded-md bg-primary text-white text-[13px] font-medium hover:bg-primary/90 transition-colors"
-        >
-          <Plus size={13} strokeWidth={2.5} />
-          New Content
-        </Link>
-      </div>
+      {canCreateContent(profile?.role) && (
+        <div className="px-3 pt-3 pb-1">
+          <Link
+            href="/content/new"
+            className="flex items-center gap-2 w-full h-8 px-3 rounded-md bg-primary text-white text-[13px] font-medium hover:bg-primary/90 transition-colors"
+          >
+            <Plus size={13} strokeWidth={2.5} />
+            New Content
+          </Link>
+        </div>
+      )}
 
       {/* Navigation */}
       <nav className="flex-1 px-2 py-2 space-y-0.5 overflow-y-auto" aria-label="Main navigation">

@@ -1,11 +1,20 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { ChevronLeft } from "lucide-react";
 import { NewContentForm } from "@/components/content/new-content-form";
+import { requireAuth } from "@/lib/auth/session";
+import { canCreateContent } from "@/lib/auth/permissions";
 
 export const metadata: Metadata = { title: "New Content" };
 
-export default function NewContentPage() {
+export default async function NewContentPage() {
+  const session = await requireAuth();
+
+  if (!canCreateContent(session.profile.role)) {
+    redirect("/content");
+  }
+
   return (
     <div className="max-w-2xl mx-auto">
       <div className="mb-5">

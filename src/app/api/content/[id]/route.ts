@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth/session";
-import { createSupabaseServerClient } from "@/lib/db/client";
+import { createSupabaseServerClient, createSupabaseAdminClient } from "@/lib/db/client";
 import { NotFoundError, ForbiddenError, toApiError, getStatusCode } from "@/lib/errors";
 import { advanceStepIfDue, publishDueQueueItems } from "@/services/workflow/worker";
 
@@ -33,14 +33,29 @@ export async function GET(
     // one pipeline step per request-detail GET (debounced). This drives the
     // pipeline on Hobby, which does not support per-minute cron jobs. The read
     // is awaited so the serverless function stays alive for the whole step.
-    const advanced = await advanceStepIfDue(request);
+    let advanced = false;
+    let stepFailed = false;
+    try {
+      advanced = await advanceStepIfDue(request);
+    } catch (err) {
+      // The step handlers already persisted the failure (status → FAILED +
+      // a failure record). Surfacing it here would make every poll error with
+      // a 500 and confuse the UI — instead log it and let the next poll
+      // reflect the FAILED state.
+      stepFailed = true;
+      console.error(`[Workspace API] Step failed for ${id}:`, err);
+    }
 
-    if (advanced) {
-      // Flush due scheduled/retry publishes while we are here (otherwise they
-      // only fire on cron plan tiers).
-      await publishDueQueueItems(createSupabaseServerClient());
+    if (advanced || stepFailed) {
+      // Flush due scheduled/retry publishes while we are here. The worker
+      // uses the admin client (service role), not the user-scoped one.
+      try {
+        await publishDueQueueItems(createSupabaseAdminClient());
+      } catch (err) {
+        console.error(`[Workspace API] Publish sweep failed:`, err);
+      }
 
-      // Re-fetch so the response reflects the step that just ran.
+      // Re-fetch so the response reflects the step outcome (success or FAILED).
       const { data: fresh } = await supabase
         .from("content_requests")
         .select("*")
@@ -81,6 +96,7 @@ export async function GET(
       publishingQueue: (publishingQueue as any[]) ?? [],
     });
   } catch (error) {
+    console.error("[Content API] GET failed:", error);
     return NextResponse.json(toApiError(error), { status: getStatusCode(error) });
   }
 }

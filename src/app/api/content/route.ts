@@ -1,15 +1,26 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth/session";
+import { canCreateContent } from "@/lib/auth/permissions";
 import { createSupabaseServerClient } from "@/lib/db/client";
 import { CreateContentRequestSchema } from "@/schemas/content-request";
 import { recordAudit } from "@/lib/audit";
-import { toApiError, getStatusCode } from "@/lib/errors";
+import { ForbiddenError, toApiError, getStatusCode } from "@/lib/errors";
 import { isLocalDevelopment, runPipelineToCompletion } from "@/services/workflow/worker";
 
 export async function POST(req: Request) {
   try {
     const session = await requireAuth();
+
+    // Mirror the content_requests_insert RLS policy: only content managers and
+    // admins can create requests. Give a clear 403 instead of letting the DB
+    // fail with a cryptic generic message.
+    if (!canCreateContent(session.profile.role)) {
+      throw new ForbiddenError(
+        "Only content managers and admins can create content. Ask an admin to assign you the content_manager role."
+      );
+    }
+
     const body = await req.json();
 
     const parsed = CreateContentRequestSchema.safeParse(body);

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { createSupabaseServerClient } from "@/lib/db/client";
 import { requireAuth } from "@/lib/auth/session";
+import { canCreateContent } from "@/lib/auth/permissions";
 import { StatusBadge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -39,12 +40,14 @@ export default async function ContentListPage() {
             {requests.length} request{requests.length !== 1 ? "s" : ""}
           </p>
         </div>
-        <Link
-          href="/content/new"
-          className="flex items-center gap-1.5 h-8 px-3 rounded-md bg-primary text-white text-[13px] font-medium hover:bg-primary/90 transition-colors"
-        >
-          <Plus size={13} />New Content
-        </Link>
+        {canCreateContent(session.profile.role) && (
+          <Link
+            href="/content/new"
+            className="flex items-center gap-1.5 h-8 px-3 rounded-md bg-primary text-white text-[13px] font-medium hover:bg-primary/90 transition-colors"
+          >
+            <Plus size={13} />New Content
+          </Link>
+        )}
       </div>
 
       <Card>
@@ -54,9 +57,11 @@ export default async function ContentListPage() {
             title="No content yet"
             description="Create a content request to start the AI research and drafting pipeline."
             action={
-              <Link href="/content/new" className="flex items-center gap-1.5 h-8 px-3 rounded-md bg-primary text-white text-[13px] font-medium hover:bg-primary/90 transition-colors">
-                <Plus size={13} />Create your first content
-              </Link>
+              canCreateContent(session.profile.role) ? (
+                <Link href="/content/new" className="flex items-center gap-1.5 h-8 px-3 rounded-md bg-primary text-white text-[13px] font-medium hover:bg-primary/90 transition-colors">
+                  <Plus size={13} />Create your first content
+                </Link>
+              ) : undefined
             }
           />
         ) : (
